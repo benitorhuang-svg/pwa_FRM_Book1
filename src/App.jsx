@@ -507,8 +507,11 @@ sys.stdout = StringIO()
       const stdout = await pyodide.runPythonAsync('sys.stdout.getvalue()')
       setOutput(stdout || '執行完成（無文字內容輸出 ）')
 
-      if (isInteractive) {
+      if (interactive) {
+        // Try interactive rendering first; then fallback to static captures.
         await ensurePlotsShown(pyodide)
+        const images = await captureAllPlots(pyodide)
+        setPlotImages(images)
       } else {
         const images = await captureAllPlots(pyodide)
         setPlotImages(images)
