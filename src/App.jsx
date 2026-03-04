@@ -51,6 +51,8 @@ const MODULE_DEPS = {
   'idna': 'wheels/idna-3.11-py3-none-any.whl',
   'urllib3': 'wheels/urllib3-2.6.3-py3-none-any.whl'
 }
+
+const PREVIEW_PANEL_DEFAULT_WIDTH = 760
 import { formatPythonError } from './utils/error-handler'
 import { perfMonitor, reportWebVitals } from './utils/performance'
 import { PANDAS_DATAREADER_SHIM, QUANTLIB_SHIM } from './utils/python-shims'
@@ -136,7 +138,7 @@ function App() {
     return saved === 'dark' || (!saved && false) // Default to Light Mode (false)
   })
 
-  const [previewPanelWidth, setPreviewPanelWidth] = useState(600) // Start visible and centered
+  const [previewPanelWidth, setPreviewPanelWidth] = useState(PREVIEW_PANEL_DEFAULT_WIDTH)
   const [installedPackages] = useState(new Set())
   const [currentMplBackend, setCurrentMplBackend] = useState(null)
   const backgroundInitLoggedRef = useRef(false)
@@ -528,12 +530,14 @@ sys.stdout = StringIO()
 
   const handleCodeClick = (script) => {
     setCurrentScript(script)
+    setPreviewPanelWidth(PREVIEW_PANEL_DEFAULT_WIDTH)
     setOutput('')
     setPlotImages([])
   }
 
   const handleScriptSelect = (script) => {
     setCurrentScript(script)
+    setPreviewPanelWidth(PREVIEW_PANEL_DEFAULT_WIDTH)
     setOutput('')
     setPlotImages([])
   }

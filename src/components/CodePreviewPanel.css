@@ -75,10 +75,12 @@
   border: 1px solid var(--glass-border);
   display: flex;
   flex-direction: column;
+  flex: 1;
   height: 100%;
+  width: 100%;
+  min-width: 0;
   overflow: hidden;
-  min-width: 300px;
-  max-width: 70vw;
+  max-width: none;
   border-radius: var(--radius-xl);
   margin: 0.75rem;
   box-shadow: 0 10px 40px -10px rgba(0, 0, 0, 0.15);
