@@ -3,7 +3,7 @@
 ## 目錄組織
 
 ```
-pwa_Book1_python/
+pwa_FRM_Book1/
 ├── public/                     # 靜態資源（直接提供）
 │   ├── data/
 │   │   └── chapters.json       # 自動生成的章節資料

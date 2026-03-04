@@ -1,6 +1,7 @@
 # 📚 FRM Python 互動式學習平台 PWA
 
 這是《手術刀般精準的 FRM 用 Python 科學管控財金風險：基礎篇》的 Progressive Web App (PWA) 互動式學習平台。
+部署網址將改為 https://benitorhuang-svg.github.io/pwa_FRM_Book1  （原本為 _python 結尾）。
 
 ## ✨ 特色功能
 
@@ -47,7 +48,7 @@ npm run build
 ## 📁 專案結構
 
 ```
-pwa_Book1_python/
+pwa_FRM_Book1/   <-- update after renaming repository
 ├── public/                    # 靜態資源
 │   ├── data/
 │   │   └── chapters.json      # 自動生成的章節資料
