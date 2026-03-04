@@ -5,27 +5,46 @@ import './TopNav.css'
 function TopNav({
     chapters,
     currentChapter,
+    bodyContent,
     onChapterSelect,
     currentScript,
     onScriptSelect,
     selectedTopicId,
     onTopicSelect,
     loading,
-    
+
 }) {
     // Extract H3 topics for the dropdown
     const topics = useMemo(() => {
-        const intro = currentChapter?.content?.intro
-        if (!intro) return []
+        const content = currentChapter?.content
+        if (!content) return []
 
         let targetText = ""
+        const intro = content.intro
+
+        // Handle intro as string (legacy)
         if (typeof intro === 'string') {
             targetText = intro
-        } else if (typeof intro === 'object' && intro.body) {
-            targetText = intro.body
-        } else {
-            return []
+        } else if (intro && typeof intro === 'object') {
+            // Handle structured intro - might have headers in roadmap or implementation
+            if (intro.body) {
+                targetText += typeof intro.body === 'string' ? intro.body : Object.values(intro.body).join('\n')
+            }
         }
+
+        // Use modular bodyContent prop (or fallback to legacy inline body)
+        const body = bodyContent || content.body
+        if (body) {
+            if (typeof body === 'string') {
+                targetText += '\n' + body
+            } else if (Array.isArray(body)) {
+                targetText += '\n' + body.join('\n')
+            } else if (typeof body === 'object') {
+                targetText += '\n' + Object.values(body).join('\n')
+            }
+        }
+
+        if (!targetText) return []
 
         const h3Regex = /^###\s+(.+)$/gm
         const matches = []
@@ -37,7 +56,7 @@ function TopNav({
             matches.push({ id, title })
         }
         return matches
-    }, [currentChapter])
+    }, [currentChapter, bodyContent])
 
     return (
         <div className="top-nav-container">
@@ -98,20 +117,28 @@ function TopNav({
                         name="script-select"
                         value={currentScript?.filename || ''}
                         onChange={(e) => {
-                            if (currentChapter?.examples) {
-                                const script = currentChapter.examples.find(s => s.filename === e.target.value)
+                            const examples = currentChapter?.examples || currentChapter?.content?.examples
+                            if (examples) {
+                                const script = examples.find(s => s.filename === e.target.value)
                                 if (script) onScriptSelect(script)
                             }
                         }}
-                        disabled={!currentChapter || !currentChapter.examples}
+                        disabled={!currentChapter || !(currentChapter.examples || currentChapter.content?.examples) || ((currentChapter.examples || currentChapter.content?.examples) || []).length === 0}
                         className="custom-select"
                     >
                         <option value="" disabled>💻 程式代碼</option>
-                        {currentChapter?.examples?.map(ex => (
-                            <option key={ex.filename} value={ex.filename}>
-                                {ex.filename}
-                            </option>
-                        ))}
+                        {(() => {
+                            const examples = currentChapter?.examples || currentChapter?.content?.examples || [];
+                            const sortedExamples = [...examples].sort((a, b) => {
+                                return a.filename.localeCompare(b.filename, undefined, { numeric: true, sensitivity: 'base' });
+                            });
+
+                            return sortedExamples.map(ex => (
+                                <option key={ex.filename} value={ex.filename}>
+                                    {ex.filename}
+                                </option>
+                            ));
+                        })()}
                     </select>
                     <ChevronDown className="select-icon" size={16} />
                 </div>

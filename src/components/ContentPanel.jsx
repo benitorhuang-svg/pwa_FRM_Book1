@@ -1,21 +1,16 @@
-import { useEffect, useMemo, memo } from 'react'
+import { useEffect, useMemo, memo, useRef } from 'react'
 import { Marked } from 'marked'
-import markedKatex from 'marked-katex-extension'
+import renderMathInElement from 'katex/dist/contrib/auto-render'
 import DOMPurify from 'dompurify'
 import './ContentPanel.css'
 import './WelcomeScreen.css'
 
-// Configure KaTeX extension with proper delimiters
-// Create a dedicated Marked instance to avoid global state pollution and HMR issues
-const marked = new Marked(
-  markedKatex({
-    throwOnError: false,
-    output: 'html',
-    nonStandard: true // Ensure $ delimiters are enabled
-  })
-)
+// Create a dedicated Marked instance
+const marked = new Marked()
 
-const ContentPanel = memo(({ chapter, onCodeClick, selectedTopicId, output, isRunning, plotImages }) => {
+
+const ContentPanel = memo(({ chapter, bodyContent, onCodeClick, selectedTopicId, output, isRunning, plotImages }) => {
+  const containerRef = useRef(null)
   // Use useMemo to prevent expensive markdown parsing on every re-render (like when resizing)
   const renderedContent = useMemo(() => {
     if (!chapter) return null
@@ -51,9 +46,30 @@ const ContentPanel = memo(({ chapter, onCodeClick, selectedTopicId, output, isRu
           if (intro.implementation.scenarios) rawMarkdown += `## 💻 應用場景清單\n${intro.implementation.scenarios}\n\n`
         }
 
-        // Detailed Content
-        if (intro.body) {
-          rawMarkdown += `\n## 📝 章節重點詳細解說的內容\n${intro.body}`
+        // Detailed Content — from modular bodyContent prop (or legacy inline body)
+        const resolvedBody = bodyContent || chapter.content?.body || intro.body
+        if (resolvedBody) {
+          rawMarkdown += `\n## 📝 章節重點解說 ( 內容由AI產生，非原書本提供 )\n`
+          if (typeof resolvedBody === 'string') {
+            let parsedBody = null
+            try {
+              if (resolvedBody.trim().startsWith('{')) {
+                parsedBody = JSON.parse(resolvedBody)
+              }
+            } catch {
+              // Ignore parse error, treat as regular string
+            }
+
+            if (parsedBody && typeof parsedBody === 'object') {
+              rawMarkdown += Object.values(parsedBody).join('\n\n')
+            } else {
+              rawMarkdown += resolvedBody
+            }
+          } else if (Array.isArray(resolvedBody)) {
+            rawMarkdown += resolvedBody.join('\n\n')
+          } else if (typeof resolvedBody === 'object') {
+            rawMarkdown += Object.values(resolvedBody).join('\n\n')
+          }
         }
       }
 
@@ -63,42 +79,98 @@ const ContentPanel = memo(({ chapter, onCodeClick, selectedTopicId, output, isRu
         ''
       )
 
-      // Pre-process for KaTeX: Ensure proper spacing around math delimiters
+      // Pre-process for KaTeX: Recover from corrupted escapes and standardize delimiters
+      /* eslint-disable no-control-regex */
       rawMarkdown = rawMarkdown
-        .replace(/\s*\$\$\s*/g, '\n$$\n')
-        .replace(/(?<!\$)\$(?!\$)\s*(.*?)\s*(?<!\$)\$(?!\$)/g, '$$$1$')
+        // 1. Recover from "eaten" backslashes that became control characters
+        .replace(/\x08(?![e\\])/g, '\\b')
+        .replace(/\x0c(?![r\\])/g, '\\f')
+        .replace(/\x0b/g, '\\v')
+        .replace(/\r(?![ \n])/g, '\\r')
 
-      let rawHtml = marked.parse(rawMarkdown)
+        // 2. Idempotent recovery for common LaTeX commands
+        .replace(/[\x08]egin\{/g, '\\begin{')
+        .replace(/[\x08]eta/g, '\\beta')
+        .replace(/[\x0c]rac\{/g, '\\frac{')
+        .replace(/[\x09]ext\{/g, '\\text{')
+        .replace(/[\x09]heta/g, '\\theta')
+        .replace(/[\x09]au(?=\s|$|[^a-z])/g, '\\tau')
+      /* eslint-enable no-control-regex */
+
+      // 3. Normalize literal \n strings to real newlines (Defensive rendering for corrupted data)
+      rawMarkdown = rawMarkdown.replace(/\\n/g, '\n')
+
+      // ── Protect math blocks from marked parsing ──
+      const mathBlocks = []
+
+      // 1. Display math: $$ ... $$
+      rawMarkdown = rawMarkdown.replace(/\$\$([\s\S]*?)\$\$/g, (match, inner) => {
+        const idx = mathBlocks.length
+        mathBlocks.push({ type: 'display', content: inner })
+        return ` @@MATH_BLOCK_${idx}@@ `
+      })
+
+      // 2. Aligned environments: \begin{aligned} ... \end{aligned}
+      rawMarkdown = rawMarkdown.replace(/\\begin\{aligned\}([\s\S]*?)\\end\{aligned\}/g, (match, inner) => {
+        const idx = mathBlocks.length
+        mathBlocks.push({ type: 'display', content: `\\begin{aligned}${inner}\\end{aligned}` })
+        return ` @@MATH_BLOCK_${idx}@@ `
+      })
+
+      // 3. Inline math: $ ... $
+      rawMarkdown = rawMarkdown.replace(/(?<!\\)\$([^$\n]+?)\$/g, (match, inner) => {
+        const idx = mathBlocks.length
+        mathBlocks.push({ type: 'inline', content: inner })
+        return ` @@MATH_BLOCK_${idx}@@ `
+      })
+
+      const rawHtml = marked.parse(rawMarkdown)
 
       // Inject IDs into <h3> tags for anchoring
-      rawHtml = rawHtml.replace(/<h3>(.*?)<\/h3>/g, (match, title) => {
+      let htmlWithIds = rawHtml.replace(/<h3>(.*?)<\/h3>/g, (match, title) => {
         const textOnly = title.replace(/<[^>]*>/g, '').trim()
         const id = 'topic-' + textOnly.replace(/\s+/g, '-').toLowerCase()
         return `<h3 id="${id}">${title}</h3>`
       })
 
-      const cleanHtml = DOMPurify.sanitize(rawHtml, {
+      // Sanitize the HTML first, while it still contains the placeholders
+      const cleanHtml = DOMPurify.sanitize(htmlWithIds, {
+        USE_PROFILES: { html: true, mathml: true },
         ADD_TAGS: [
           'math', 'annotation', 'semantics', 'mrow', 'msub', 'msup', 'msubsup', 'mover', 'munder', 'munderover',
           'mmultiscripts', 'mprec', 'mnext', 'mtable', 'mtr', 'mtd', 'mfrac', 'msqrt', 'mroot', 'mstyle', 'merror',
           'mpadded', 'mphantom', 'mfenced', 'menclose', 'ms', 'mglyph', 'maligngroup', 'malignmark', 'maction',
           'svg', 'path', 'use', 'span', 'div'
         ],
-        ADD_ATTR: ['id', 'target', 'xlink:href', 'class', 'style', 'aria-hidden', 'viewBox', 'd', 'fill', 'stroke', 'stroke-width', 'data-filename']
+        ADD_ATTR: [
+          'id', 'target', 'xlink:href', 'class', 'style', 'aria-hidden', 'viewBox', 'd', 'fill', 'stroke',
+          'stroke-width', 'data-filename', 'encoding', 'display'
+        ]
       })
 
-      let processedHtml = cleanHtml
+      // ── Re-insert math blocks after all other processing ──
       const scripts = chapter.examples || []
       const sortedScripts = [...scripts].sort((a, b) => b.filename.length - a.filename.length)
 
+      let finalHtml = cleanHtml
       sortedScripts.forEach((script) => {
         const escapedName = script.filename.replace('.', '\\.')
         const regex = new RegExp(`(?<!['".\\w])(${escapedName})(?!['".\\w])`, 'g')
 
-        processedHtml = processedHtml.replace(
+        finalHtml = finalHtml.replace(
           regex,
           `<span class="code-link" data-filename="${script.filename}">${script.filename}</span>`
         )
+      })
+
+      // Restoration happens last to ensure LaTeX integrity
+      const processedHtml = finalHtml.replace(/@@MATH_BLOCK_(\d+)@@/g, (match, idx) => {
+        const block = mathBlocks[parseInt(idx)]
+        if (block.type === 'display') {
+          return `\\[ ${block.content.trim()} \\]`
+        } else {
+          return `\\( ${block.content.trim()} \\)`
+        }
       })
 
       return processedHtml
@@ -129,7 +201,7 @@ const ContentPanel = memo(({ chapter, onCodeClick, selectedTopicId, output, isRu
       `
       return html
     }
-  }, [chapter])
+  }, [chapter, bodyContent])
 
   useEffect(() => {
     const handleCodeLinkClick = (e) => {
@@ -161,6 +233,23 @@ const ContentPanel = memo(({ chapter, onCodeClick, selectedTopicId, output, isRu
       scrollContainer.scrollTop = 0
     }
   }, [chapter])
+
+  // Robust KaTeX rendering using auto-render (Post-processing)
+  useEffect(() => {
+    if (containerRef.current && renderedContent) {
+
+      renderMathInElement(containerRef.current, {
+        delimiters: [
+          { left: '$$', right: '$$', display: true },
+          { left: '$', right: '$', display: false },
+          { left: '\\(', right: '\\)', display: false },
+          { left: '\\[', right: '\\]', display: true }
+        ],
+        throwOnError: false
+      })
+
+    }
+  }, [renderedContent])
 
   // Auto-scroll to topic when selectedTopicId changes
   useEffect(() => {
@@ -215,6 +304,7 @@ const ContentPanel = memo(({ chapter, onCodeClick, selectedTopicId, output, isRu
         ) : (
           renderedContent ? (
             <div
+              ref={containerRef}
               className="markdown-body"
               dangerouslySetInnerHTML={{ __html: renderedContent }}
             />

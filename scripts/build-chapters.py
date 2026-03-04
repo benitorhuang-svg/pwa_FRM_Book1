@@ -150,12 +150,48 @@ def build_chapters_json():
     # 輸出 JSON
     output_dir = base_path / 'public' / 'data'
     output_dir.mkdir(parents=True, exist_ok=True)
-    
+
+    def sanitize_strings(obj):
+        """
+        Recursively walk a data structure and escape single backslashes in strings.
+        This avoids producing JSON with raw unescaped backslashes (e.g. LaTeX commands)
+        which can break JS JSON parsers when embedded or transferred.
+        """
+        if isinstance(obj, str):
+            return obj.replace("\\", "\\\\")
+        elif isinstance(obj, dict):
+            return {k: sanitize_strings(v) for k, v in obj.items()}
+        elif isinstance(obj, list):
+            return [sanitize_strings(v) for v in obj]
+        else:
+            return obj
+
     output_file = output_dir / 'chapters.json'
+    sanitized = sanitize_strings(chapters)
     with open(output_file, 'w', encoding='utf-8') as f:
-        json.dump(chapters, f, ensure_ascii=False, indent=2)
-    
+        json.dump(sanitized, f, ensure_ascii=False, indent=2)
+
+    # Also write per-chapter files and an index for lazy loading
+    index = []
+    for ch in chapters:
+        fname = f"chapters_{ch['id']}.json"
+        fpath = output_dir / fname
+        with open(fpath, 'w', encoding='utf-8') as cf:
+            json.dump(sanitize_strings(ch), cf, ensure_ascii=False, indent=2)
+        index.append({
+            'id': ch['id'],
+            'title': ch.get('title', ''),
+            'number': ch.get('number', 0),
+            'file': fname,
+        })
+
+    # write index file
+    index_file = output_dir / 'chapters_index.json'
+    with open(index_file, 'w', encoding='utf-8') as jf:
+        json.dump(index, jf, ensure_ascii=False, indent=2)
+
     print(f"\n✓ 成功建立 {output_file}")
+    print(f"  另存為各章節檔案及索引: {index_file.name}")
     print(f"  總共 {len(chapters)} 個章節")
     print(f"  總共 {sum(len(ch['examples']) for ch in chapters)} 個範例")
 
