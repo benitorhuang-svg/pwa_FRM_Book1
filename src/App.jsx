@@ -61,7 +61,6 @@ if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
   (async () => {
     try {
       const primaryUrl = `${import.meta.env.BASE_URL}manifest.webmanifest?t=${Date.now()}`
-      const fallbackUrl = `${import.meta.env.BASE_URL}assets-manifest.json?t=${Date.now()}`
       let manifestText = null
 
       try {
@@ -73,15 +72,7 @@ if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
         // ignore
       }
 
-      if (!manifestText) {
-        try {
-          const fr = await fetch(fallbackUrl, { cache: 'no-store' })
-          if (!fr || !fr.ok) return
-          manifestText = await fr.text()
-        } catch {
-            return
-          }
-      }
+      if (!manifestText) return
 
       const prev = localStorage.getItem('app_assets_manifest_text')
       if (prev && prev === manifestText) return

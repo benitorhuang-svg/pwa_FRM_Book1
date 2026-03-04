@@ -165,7 +165,9 @@ export async function loadPyodide(onProgress) {
 
             // Check what's already installed to avoid redundant downloads
             // Core Pyodide distribution packages
-            const corePackages = ['numpy', 'pandas', 'matplotlib', 'scipy', 'statsmodels', 'sympy', 'lxml', 'micropip'];
+            // NOTE: do not preload scipy here; browser-side SciPy native extensions can
+            // trigger PyInit__fblas errors in this environment. We rely on SCIPY_STUB.
+            const corePackages = ['numpy', 'pandas', 'matplotlib', 'statsmodels', 'sympy', 'lxml', 'micropip'];
             // Third-party packages (not in distribution)
             const pipPackages = ['numpy-financial', 'pandas-datareader', 'pyodide-http', 'pymoo==0.4.1', 'seaborn'];
             const installedFiles = pyodide.FS.readdir(SITE_PACKAGES);
