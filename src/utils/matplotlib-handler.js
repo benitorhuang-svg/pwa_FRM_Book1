@@ -81,15 +81,14 @@ base64.b64encode(buf.read()).decode('utf-8')
       }
     }
 
-    // 清除所有圖表 (safely handle WASM backend destroy crash)
+    // 清除所有圖表
     try {
       await pyodide.runPythonAsync(`
 import matplotlib.pyplot as plt
 try:
     plt.close('all')
 except Exception:
-    from matplotlib._pylab_helpers import Gcf
-    Gcf.figs.clear()
+    pass
       `)
     } catch (_e) { /* ignore close errors */ }
 
@@ -151,13 +150,18 @@ import matplotlib.pyplot as plt
 import warnings
 import io
 import base64
-import re as _mpl_re
 
-# Safely clear stale figure managers before switching backend
-# (WASM backend destroy() crashes if canvas DOM elements are gone)
+# ── Monkey-patch WASM backend destroy to prevent parentNode crash ──
+# This MUST happen before matplotlib.use() which calls close("all")
 try:
-    from matplotlib._pylab_helpers import Gcf
-    Gcf.figs.clear()
+    from matplotlib_pyodide import browser_backend as _bb
+    _orig_destroy = _bb.FigureCanvasWasm.destroy
+    def _safe_destroy(self, *a, **kw):
+        try:
+            _orig_destroy(self, *a, **kw)
+        except (AttributeError, Exception):
+            pass
+    _bb.FigureCanvasWasm.destroy = _safe_destroy
 except Exception:
     pass
 
@@ -171,12 +175,12 @@ if '${backend}' == 'AGG':
         return None
     plt.show = _silent_show
 
-# ── Pre-registered figure helpers (avoids backslash-in-template-literal issues) ──
+# ── Pre-registered figure helpers ──
 _BS = chr(92)  # single backslash character
-_MULTI_BS_RE = _mpl_re.compile(chr(92) + chr(92) + '+')  # regex: two-or-more backslashes
+_DBS = _BS + _BS  # double backslash
 
 def _sanitize_figure_text(fig):
-    """Replace sequences of multiple backslashes with a single one in all text artists."""
+    """Collapse sequences of multiple backslashes into one in all text artists."""
     for ax in fig.get_axes():
         texts = [ax.title, ax.xaxis.label, ax.yaxis.label] + list(ax.texts)
         leg = ax.get_legend()
@@ -186,8 +190,9 @@ def _sanitize_figure_text(fig):
             if t is None:
                 continue
             s = t.get_text()
-            if isinstance(s, str) and _BS in s:
-                s = _MULTI_BS_RE.sub(lambda m: _BS, s)
+            if isinstance(s, str) and _DBS in s:
+                while _DBS in s:
+                    s = s.replace(_DBS, _BS)
                 t.set_text(s)
 
 def _safe_save_figure(fig, buf):
