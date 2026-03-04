@@ -53,6 +53,7 @@ const MODULE_DEPS = {
 }
 
 const PREVIEW_PANEL_DEFAULT_WIDTH = 760
+const TOPIC_ICON_OFFSET_PX = 28
 import { formatPythonError } from './utils/error-handler'
 import { perfMonitor, reportWebVitals } from './utils/performance'
 import { PANDAS_DATAREADER_SHIM, QUANTLIB_SHIM } from './utils/python-shims'
@@ -142,6 +143,23 @@ function App() {
   const [installedPackages] = useState(new Set())
   const [currentMplBackend, setCurrentMplBackend] = useState(null)
   const backgroundInitLoggedRef = useRef(false)
+
+  const getAlignedPreviewWidth = () => {
+    if (typeof window === 'undefined' || typeof document === 'undefined') {
+      return PREVIEW_PANEL_DEFAULT_WIDTH
+    }
+    const topicSelect = document.getElementById('topic-select')
+    if (!topicSelect) {
+      return PREVIEW_PANEL_DEFAULT_WIDTH
+    }
+
+    const rect = topicSelect.getBoundingClientRect()
+    const dividerX = rect.left + TOPIC_ICON_OFFSET_PX
+    const candidate = window.innerWidth - dividerX
+    const minWidth = 420
+    const maxWidth = Math.floor(window.innerWidth * 0.8)
+    return Math.max(minWidth, Math.min(candidate, maxWidth))
+  }
 
   // Fetch Chapters Index (Lightweight)
   useEffect(() => {
@@ -274,6 +292,15 @@ function App() {
         .catch(err => console.error('Background loaded failed', err))
     }
   }, [pyodide, loading])
+
+  useEffect(() => {
+    if (!currentScript) return
+    const onResize = () => {
+      setPreviewPanelWidth(getAlignedPreviewWidth())
+    }
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [currentScript])
 
   useEffect(() => {
     localStorage.setItem('theme', darkMode ? 'dark' : 'light')
@@ -530,14 +557,14 @@ sys.stdout = StringIO()
 
   const handleCodeClick = (script) => {
     setCurrentScript(script)
-    setPreviewPanelWidth(PREVIEW_PANEL_DEFAULT_WIDTH)
+    setPreviewPanelWidth(getAlignedPreviewWidth())
     setOutput('')
     setPlotImages([])
   }
 
   const handleScriptSelect = (script) => {
     setCurrentScript(script)
-    setPreviewPanelWidth(PREVIEW_PANEL_DEFAULT_WIDTH)
+    setPreviewPanelWidth(getAlignedPreviewWidth())
     setOutput('')
     setPlotImages([])
   }
