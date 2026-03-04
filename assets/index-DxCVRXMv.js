@@ -792,7 +792,7 @@ try:
         print("✅ SciPy 相容性：binom_test 修正補丁已套用。")
 except ImportError:
     pass
-`;let Y=null,F=null;const Ue=["https://cdn.jsdelivr.net/pyodide/v0.26.4/full/pyodide.js","https://unpkg.com/pyodide@0.26.4/pyodide.js"];function He(s){return new Promise((e,t)=>{const n=document.createElement("script");n.src=s,n.crossOrigin="anonymous",n.onload=e,n.onerror=()=>t(new Error(`Failed to load script: ${s}`)),document.head.appendChild(n)})}async function Ge(){if(typeof window.loadPyodide!="function"){console.warn("window.loadPyodide not found, loading dynamically...");for(const s of Ue)try{if(await He(s),typeof window.loadPyodide=="function"){console.log(`Pyodide loaded from ${s}`);return}}catch(e){console.warn(`Failed to load Pyodide from ${s}:`,e.message)}throw new Error("Failed to load Pyodide from all CDN sources")}}class Ve{constructor(e){this.onProgress=e,this.current=0,this.target=0,this.message="",this.interval=null,this.step=.1}start(){this.interval||(this.interval=setInterval(()=>{if(this.current<this.target){const e=this.target-this.current,t=e>20?3.5:e>5?1.5:.5;this.current=Math.min(this.current+t,this.target),this.onProgress(Math.floor(this.current),this.message)}else this.target<99&&(this.current=Math.min(this.current+.08,99.9),this.onProgress(Math.floor(this.current),this.message))},100))}update(e,t){this.target=e,t&&(this.message=t)}async yieldToUI(){return new Promise(e=>setTimeout(e,30))}finish(e="Ready!"){this.interval&&clearInterval(this.interval),this.current=100,this.onProgress(100,e)}}async function Ye(s){return Y?(s&&s(100,"Ready"),Y):F?F.then(e=>(s&&s(100,"Ready"),e)):(F=(async()=>{const e=new Ve(s);e.start();try{e.update(10,"正在啟動 Python 直譯器 (v0.26.4)..."),await Ge();let t=null,n=3;for(;n>0;)try{const p="https://cdn.jsdelivr.net/pyodide/v0.26.4/full/";console.log("Using Pyodide CDN for packages:",p),t=await window.loadPyodide({indexURL:p});break}catch(p){if(console.warn(`Failed to load Pyodide (attempts left: ${n-1}):`,p),n--,n===0)throw p;await new Promise(a=>setTimeout(a,1e3))}try{const p=document.getElementById("inline-scipy-stub");if(p&&p.textContent&&p.textContent.trim().length>0)try{await t.runPythonAsync(p.textContent),console.log("Inline SciPy stub executed early.")}catch(a){console.warn("Failed to execute inline SciPy stub:",a)}}catch(p){console.warn("Error checking inline SciPy stub:",p)}e.update(25,"引擎啟動完成，正在檢查本地暫存環境..."),await e.yieldToUI();const o="/lib/python3.12/site-packages";try{t.FS.mkdirTree(o)}catch{}t.FS.mount(t.FS.filesystems.IDBFS,{},o),e.update(26,"正在從本地儲存區載入 Python 環境..."),await new Promise(p=>{t.FS.syncfs(!0,a=>{a&&console.error("IDBFS sync error:",a),p()})}),await e.yieldToUI();const c=["numpy","pandas","matplotlib","statsmodels","sympy","lxml","micropip"],l=["numpy-financial","pandas-datareader","pyodide-http","pymoo==0.4.1","seaborn"],h=t.FS.readdir(o),b=c.filter(p=>!h.includes(p)&&!h.some(a=>a.startsWith(p+"-"))),i=l.filter(p=>{const a=p.replace("-","_");return!h.includes(p)&&!h.includes(a)&&!h.some(d=>d.startsWith(p+"-"))&&!h.some(d=>d.startsWith(a+"-"))});if(b.length>0||i.length>0){const p=[...b,...i];if(e.update(30,`正在同步並安裝套件: ${p.join(", ")}...`),b.length>0&&(e.update(40,`正在從 CDN 獲取核心科學套件 (${b.length} 個)...`),await t.loadPackage(b)),i.length>0){e.update(70,`正在掛載第三方擴充資源 (${i.length} 個)...`),await t.loadPackage("micropip");const a=t.pyimport("micropip"),d=i.map(u=>u==="numpy-financial"?"/pwa_FRM_Book1_python/wheels/numpy_financial-1.0.0-py3-none-any.whl":u);await a.install(d)}e.update(85,"正在固化環境映射至本地磁碟..."),await new Promise(a=>{t.FS.syncfs(!1,d=>{d&&console.error("IDBFS save error:",d),a()})}),e.update(90,"✅ 環境已完成本地持久化儲存")}else e.update(90,"🚀 偵測到本地環境快照，已跳過網路請求");return await e.yieldToUI(),e.update(92,"⚙️ 配置：正在載入環境優化補丁..."),await e.yieldToUI(),await Promise.all([t.runPythonAsync(`
+`;let Y=null,F=null;const Ue=["https://cdn.jsdelivr.net/pyodide/v0.26.4/full/pyodide.js","https://unpkg.com/pyodide@0.26.4/pyodide.js"];function He(s){return new Promise((e,t)=>{const n=document.createElement("script");n.src=s,n.crossOrigin="anonymous",n.onload=e,n.onerror=()=>t(new Error(`Failed to load script: ${s}`)),document.head.appendChild(n)})}async function Ge(){if(typeof window.loadPyodide!="function"){console.warn("window.loadPyodide not found, loading dynamically...");for(const s of Ue)try{if(await He(s),typeof window.loadPyodide=="function"){console.log(`Pyodide loaded from ${s}`);return}}catch(e){console.warn(`Failed to load Pyodide from ${s}:`,e.message)}throw new Error("Failed to load Pyodide from all CDN sources")}}class Ve{constructor(e){this.onProgress=e,this.current=0,this.target=0,this.message="",this.interval=null,this.step=.1}start(){this.interval||(this.interval=setInterval(()=>{if(this.current<this.target){const e=this.target-this.current,t=e>20?3.5:e>5?1.5:.5;this.current=Math.min(this.current+t,this.target),this.onProgress(Math.floor(this.current),this.message)}else this.target<99&&(this.current=Math.min(this.current+.08,99.9),this.onProgress(Math.floor(this.current),this.message))},100))}update(e,t){this.target=e,t&&(this.message=t)}async yieldToUI(){return new Promise(e=>setTimeout(e,30))}finish(e="Ready!"){this.interval&&clearInterval(this.interval),this.current=100,this.onProgress(100,e)}}async function Ye(s){return Y?(s&&s(100,"Ready"),Y):F?F.then(e=>(s&&s(100,"Ready"),e)):(F=(async()=>{const e=new Ve(s);e.start();try{e.update(10,"正在啟動 Python 直譯器 (v0.26.4)..."),await Ge();let t=null,n=3;for(;n>0;)try{const p="https://cdn.jsdelivr.net/pyodide/v0.26.4/full/";console.log("Using Pyodide CDN for packages:",p),t=await window.loadPyodide({indexURL:p});break}catch(p){if(console.warn(`Failed to load Pyodide (attempts left: ${n-1}):`,p),n--,n===0)throw p;await new Promise(a=>setTimeout(a,1e3))}try{const p=document.getElementById("inline-scipy-stub");if(p&&p.textContent&&p.textContent.trim().length>0)try{await t.runPythonAsync(p.textContent),console.log("Inline SciPy stub executed early.")}catch(a){console.debug("Inline SciPy stub skipped:",a)}}catch(p){console.debug("Error checking inline SciPy stub:",p)}e.update(25,"引擎啟動完成，正在檢查本地暫存環境..."),await e.yieldToUI();const o="/lib/python3.12/site-packages";try{t.FS.mkdirTree(o)}catch{}t.FS.mount(t.FS.filesystems.IDBFS,{},o),e.update(26,"正在從本地儲存區載入 Python 環境..."),await new Promise(p=>{t.FS.syncfs(!0,a=>{a&&console.error("IDBFS sync error:",a),p()})}),await e.yieldToUI();const c=["numpy","pandas","matplotlib","statsmodels","sympy","lxml","micropip"],l=["numpy-financial","pandas-datareader","pyodide-http","pymoo==0.4.1","seaborn"],h=t.FS.readdir(o),b=c.filter(p=>!h.includes(p)&&!h.some(a=>a.startsWith(p+"-"))),i=l.filter(p=>{const a=p.replace("-","_");return!h.includes(p)&&!h.includes(a)&&!h.some(d=>d.startsWith(p+"-"))&&!h.some(d=>d.startsWith(a+"-"))});if(b.length>0||i.length>0){const p=[...b,...i];if(e.update(30,`正在同步並安裝套件: ${p.join(", ")}...`),b.length>0&&(e.update(40,`正在從 CDN 獲取核心科學套件 (${b.length} 個)...`),await t.loadPackage(b)),i.length>0){e.update(70,`正在掛載第三方擴充資源 (${i.length} 個)...`),await t.loadPackage("micropip");const a=t.pyimport("micropip"),d=i.map(u=>u==="numpy-financial"?"/pwa_FRM_Book1_python/wheels/numpy_financial-1.0.0-py3-none-any.whl":u);await a.install(d)}e.update(85,"正在固化環境映射至本地磁碟..."),await new Promise(a=>{t.FS.syncfs(!1,d=>{d&&console.error("IDBFS save error:",d),a()})}),e.update(90,"✅ 環境已完成本地持久化儲存")}else e.update(90,"🚀 偵測到本地環境快照，已跳過網路請求");return await e.yieldToUI(),e.update(92,"⚙️ 配置：正在載入環境優化補丁..."),await e.yieldToUI(),await Promise.all([t.runPythonAsync(`
 import warnings
 warnings.simplefilter("ignore", DeprecationWarning)
 warnings.simplefilter("ignore", FutureWarning)
@@ -833,54 +833,62 @@ import matplotlib.pyplot as plt
                 `)}catch{}}const re=new Set;async function oe(s,e){!s||!e||re.has(e)||re.add(e)}async function Ze(s){if(s)try{await s.loadPackage("micropip");const e=s.pyimport("micropip"),t=["/pwa_FRM_Book1_python/wheels/pymoo-0.4.1-py3-none-any.whl","/pwa_FRM_Book1_python/wheels/pandas_datareader-0.10.0-py3-none-any.whl","/pwa_FRM_Book1_python/wheels/pyodide_http-0.2.2-py3-none-any.whl","/pwa_FRM_Book1_python/wheels/seaborn-0.13.2-py3-none-any.whl"];await e.install(t,{transient:!0}).catch(n=>{console.warn("preloadHeavyPackages pip install failed",n)})}catch(e){console.warn("preloadHeavyPackages error",e)}}async function Xe(s){try{const e=await s.runPythonAsync(`
 import matplotlib.pyplot as plt
 len(plt.get_fignums())
-    `);if(e===0)return[];const t=[];for(let n=0;n<e;n++){const o=await s.runPythonAsync(`
+    `);if(e===0)return[];const t=[];for(let n=0;n<e;n++)try{const o=await s.runPythonAsync(`
 import matplotlib.pyplot as plt
 import io
 import base64
 
-  def _sanitize_figure_text(fig):
+def _sanitize_figure_text(fig):
     # Make common book strings resilient in mathtext parser.
     # Example failure seen in production: "\\\\mathit{x}_1"
     for ax in fig.get_axes():
-      texts = [ax.title, ax.xaxis.label, ax.yaxis.label] + list(ax.texts)
-      legend = ax.get_legend()
-      if legend:
-        texts.extend(legend.get_texts())
-      for t in texts:
-        if not t:
-          continue
-        s = t.get_text()
-        if isinstance(s, str) and s.startswith('\\\\'):
-          t.set_text(s.replace('\\\\\\\\', '\\\\'))
+        texts = [ax.title, ax.xaxis.label, ax.yaxis.label] + list(ax.texts)
+        legend = ax.get_legend()
+        if legend:
+            texts.extend(legend.get_texts())
+        for t in texts:
+            if not t:
+                continue
+            s = t.get_text()
+            if isinstance(s, str) and s.startswith('\\'):
+                # Keep math intent, but avoid invalid escaped prefix patterns.
+                s = s.replace('\\\\', '\\')
+                if s.startswith('\\') and not s.startswith('\\mathit{'):
+                    s = s.replace('\\', '')
+                t.set_text(s)
 
 # 取得指定的圖表
 fig = plt.figure(${n+1})
-  _sanitize_figure_text(fig)
+_sanitize_figure_text(fig)
 buf = io.BytesIO()
-  try:
+try:
     fig.savefig(buf, format='png', dpi=150, bbox_inches='tight', facecolor='white')
-  except Exception:
+except Exception:
     # Fallback with minimal rendering options if label parsing still fails.
     import matplotlib as mpl
     mpl.rcParams['text.usetex'] = False
     mpl.rcParams['mathtext.default'] = 'regular'
+    for ax in fig.get_axes():
+        ax.set_xlabel(str(ax.get_xlabel()).replace('\\', ''))
+        ax.set_ylabel(str(ax.get_ylabel()).replace('\\', ''))
+        ax.set_title(str(ax.get_title()).replace('\\', ''))
     fig.savefig(buf, format='png', dpi=150, bbox_inches='tight', facecolor='white')
 
-  buf.seek(0)
-  base64.b64encode(buf.read()).decode('utf-8')
-      `);t.push(`data:image/png;base64,${o}`)}return await s.runPythonAsync('import matplotlib.pyplot as plt; plt.close("all")'),t}catch(e){return console.error("Failed to capture plots:",e),[]}}async function ie(s,e=!1){try{const t=e?"module://matplotlib_pyodide.wasm_backend":"AGG";await s.runPythonAsync(`
+buf.seek(0)
+base64.b64encode(buf.read()).decode('utf-8')
+      `);t.push(`data:image/png;base64,${o}`)}catch(o){console.warn(`Skipping figure ${n+1} due to capture error`,o)}return await s.runPythonAsync('import matplotlib.pyplot as plt; plt.close("all")'),t}catch(e){return console.error("Failed to capture plots:",e),[]}}async function ie(s,e=!1){try{const t=e?"module://matplotlib_pyodide.wasm_backend":"AGG";await s.runPythonAsync(`
 import matplotlib
 import matplotlib.pyplot as plt
-  import warnings
+import warnings
 matplotlib.use('${t}')
 if plt.style.available and 'default' in plt.style.available:
     plt.style.use('default')
 
-  warnings.filterwarnings("ignore", message=".*Matplotlib is currently using agg.*")
-  if '${t}' == 'AGG':
+warnings.filterwarnings("ignore", message=".*Matplotlib is currently using agg.*")
+if '${t}' == 'AGG':
     # In non-interactive mode, silence plt.show() side effects from source examples.
     def _silent_show(*args, **kwargs):
-      return None
+        return None
     plt.show = _silent_show
     `)}catch(t){console.error("✗ Matplotlib 初始化失敗:",t)}}async function et(s){try{await s.runPythonAsync(`
 import matplotlib.pyplot as plt

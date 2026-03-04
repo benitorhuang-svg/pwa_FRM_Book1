@@ -20,7 +20,8 @@
   <!-- Inline minimal SciPy stub to ensure safe imports before app code runs -->
   <script id="inline-scipy-stub" type="text/plain">
 import types, sys
-import numpy as np
+  import random
+  import math
 
 scipy = types.ModuleType('scipy')
 stats = types.ModuleType('scipy.stats')
@@ -29,13 +30,27 @@ linalg = types.ModuleType('scipy.linalg')
 def _noop(*args, **kwargs):
     return None
 
-stats.bernoulli = lambda p=0.5: types.SimpleNamespace(name='bernoulli', rvs=lambda size=None, **k: np.random.binomial(1, p, size=size))
-stats.uniform = lambda loc=0, scale=1: types.SimpleNamespace(name='uniform', rvs=lambda size=None, **k: np.random.uniform(loc, loc+scale, size=size))
+  def _sample_bernoulli(p=0.5, size=None):
+    if size is None:
+      return 1 if random.random() < p else 0
+    return [1 if random.random() < p else 0 for _ in range(int(size))]
 
-linalg.pascal = lambda n: (np.tril(np.fromfunction(lambda i,j: np.vectorize(lambda a,b: __import__('math').comb(max(a,b), min(a,b)))(i,j), (n,n), dtype=int)))
-linalg.eig = lambda A: np.linalg.eig(np.array(A))
-linalg.inv = lambda A: np.linalg.inv(np.array(A))
-linalg.solve = lambda a,b: np.linalg.solve(np.array(a), np.array(b))
+  def _sample_uniform(loc=0.0, scale=1.0, size=None):
+    if size is None:
+      return random.uniform(loc, loc + scale)
+    return [random.uniform(loc, loc + scale) for _ in range(int(size))]
+
+  stats.bernoulli = lambda p=0.5: types.SimpleNamespace(name='bernoulli', rvs=lambda size=None, **k: _sample_bernoulli(p, size))
+  stats.uniform = lambda loc=0, scale=1: types.SimpleNamespace(name='uniform', rvs=lambda size=None, **k: _sample_uniform(loc, scale, size))
+
+  def _pascal(n):
+    n = int(n)
+    return [[math.comb(i, j) if j <= i else 0 for j in range(n)] for i in range(n)]
+
+  linalg.pascal = _pascal
+  linalg.eig = _noop
+  linalg.inv = _noop
+  linalg.solve = _noop
 
 scipy.stats = stats
 scipy.linalg = linalg
@@ -43,7 +58,7 @@ sys.modules['scipy'] = scipy
 sys.modules['scipy.stats'] = stats
 sys.modules['scipy.linalg'] = linalg
   </script>
-  <script type="module" crossorigin src="/pwa_FRM_Book1_python/assets/index-BTkgLqm5.js"></script>
+  <script type="module" crossorigin src="/pwa_FRM_Book1_python/assets/index-DxCVRXMv.js"></script>
   <link rel="modulepreload" crossorigin href="/pwa_FRM_Book1_python/assets/vendor-B3CQIlJd.js">
   <link rel="modulepreload" crossorigin href="/pwa_FRM_Book1_python/assets/vendor-react-DBlZ22TX.js">
   <link rel="modulepreload" crossorigin href="/pwa_FRM_Book1_python/assets/vendor-utils-DahDrsZr.js">
