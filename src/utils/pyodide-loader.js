@@ -133,11 +133,11 @@ export async function loadPyodide(onProgress) {
                         await pyodide.runPythonAsync(stubEl.textContent);
                         console.log('Inline SciPy stub executed early.');
                     } catch (innerErr) {
-                        console.warn('Failed to execute inline SciPy stub:', innerErr);
+                        console.debug('Inline SciPy stub skipped:', innerErr);
                     }
                 }
             } catch (err) {
-                console.warn('Error checking inline SciPy stub:', err);
+                console.debug('Error checking inline SciPy stub:', err);
             }
 
             smoother.update(25, '引擎啟動完成，正在檢查本地暫存環境...')

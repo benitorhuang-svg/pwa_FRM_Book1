@@ -64,44 +64,56 @@ len(plt.get_fignums())
 
     // 逐一捕獲每個圖表（單張失敗不影響其他圖）
     for (let i = 0; i < figCount; i++) {
-      const plotData = await pyodide.runPythonAsync(`
+      try {
+        const plotData = await pyodide.runPythonAsync(`
 import matplotlib.pyplot as plt
 import io
 import base64
 
-  def _sanitize_figure_text(fig):
+def _sanitize_figure_text(fig):
     # Make common book strings resilient in mathtext parser.
     # Example failure seen in production: "\\\\mathit{x}_1"
     for ax in fig.get_axes():
-      texts = [ax.title, ax.xaxis.label, ax.yaxis.label] + list(ax.texts)
-      legend = ax.get_legend()
-      if legend:
-        texts.extend(legend.get_texts())
-      for t in texts:
-        if not t:
-          continue
-        s = t.get_text()
-        if isinstance(s, str) and s.startswith('\\\\'):
-          t.set_text(s.replace('\\\\\\\\', '\\\\'))
+        texts = [ax.title, ax.xaxis.label, ax.yaxis.label] + list(ax.texts)
+        legend = ax.get_legend()
+        if legend:
+            texts.extend(legend.get_texts())
+        for t in texts:
+            if not t:
+                continue
+            s = t.get_text()
+            if isinstance(s, str) and s.startswith('\\'):
+                # Keep math intent, but avoid invalid escaped prefix patterns.
+                s = s.replace('\\\\', '\\')
+                if s.startswith('\\') and not s.startswith('\\mathit{'):
+                    s = s.replace('\\', '')
+                t.set_text(s)
 
 # 取得指定的圖表
 fig = plt.figure(${i + 1})
-  _sanitize_figure_text(fig)
+_sanitize_figure_text(fig)
 buf = io.BytesIO()
-  try:
+try:
     fig.savefig(buf, format='png', dpi=150, bbox_inches='tight', facecolor='white')
-  except Exception:
+except Exception:
     # Fallback with minimal rendering options if label parsing still fails.
     import matplotlib as mpl
     mpl.rcParams['text.usetex'] = False
     mpl.rcParams['mathtext.default'] = 'regular'
+    for ax in fig.get_axes():
+        ax.set_xlabel(str(ax.get_xlabel()).replace('\\', ''))
+        ax.set_ylabel(str(ax.get_ylabel()).replace('\\', ''))
+        ax.set_title(str(ax.get_title()).replace('\\', ''))
     fig.savefig(buf, format='png', dpi=150, bbox_inches='tight', facecolor='white')
 
-  buf.seek(0)
-  base64.b64encode(buf.read()).decode('utf-8')
+buf.seek(0)
+base64.b64encode(buf.read()).decode('utf-8')
       `)
 
-      plots.push(`data:image/png;base64,${plotData}`)
+        plots.push(`data:image/png;base64,${plotData}`)
+      } catch (figureError) {
+        console.warn(`Skipping figure ${i + 1} due to capture error`, figureError)
+      }
     }
 
     // 清除所有圖表
@@ -162,16 +174,16 @@ export async function initMatplotlib(pyodide, interactive = false) {
     await pyodide.runPythonAsync(`
 import matplotlib
 import matplotlib.pyplot as plt
-  import warnings
+import warnings
 matplotlib.use('${backend}')
 if plt.style.available and 'default' in plt.style.available:
     plt.style.use('default')
 
-  warnings.filterwarnings("ignore", message=".*Matplotlib is currently using agg.*")
-  if '${backend}' == 'AGG':
+warnings.filterwarnings("ignore", message=".*Matplotlib is currently using agg.*")
+if '${backend}' == 'AGG':
     # In non-interactive mode, silence plt.show() side effects from source examples.
     def _silent_show(*args, **kwargs):
-      return None
+        return None
     plt.show = _silent_show
     `)
 
