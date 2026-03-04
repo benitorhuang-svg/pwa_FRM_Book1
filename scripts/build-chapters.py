@@ -151,25 +151,9 @@ def build_chapters_json():
     output_dir = base_path / 'public' / 'data'
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    def sanitize_strings(obj):
-        """
-        Recursively walk a data structure and escape single backslashes in strings.
-        This avoids producing JSON with raw unescaped backslashes (e.g. LaTeX commands)
-        which can break JS JSON parsers when embedded or transferred.
-        """
-        if isinstance(obj, str):
-            return obj.replace("\\", "\\\\")
-        elif isinstance(obj, dict):
-            return {k: sanitize_strings(v) for k, v in obj.items()}
-        elif isinstance(obj, list):
-            return [sanitize_strings(v) for v in obj]
-        else:
-            return obj
-
     output_file = output_dir / 'chapters.json'
-    sanitized = sanitize_strings(chapters)
     with open(output_file, 'w', encoding='utf-8') as f:
-        json.dump(sanitized, f, ensure_ascii=False, indent=2)
+        json.dump(chapters, f, ensure_ascii=False, indent=2)
 
     # Also write per-chapter files and an index for lazy loading
     index = []
@@ -177,7 +161,7 @@ def build_chapters_json():
         fname = f"chapters_{ch['id']}.json"
         fpath = output_dir / fname
         with open(fpath, 'w', encoding='utf-8') as cf:
-            json.dump(sanitize_strings(ch), cf, ensure_ascii=False, indent=2)
+            json.dump(ch, cf, ensure_ascii=False, indent=2)
         index.append({
             'id': ch['id'],
             'title': ch.get('title', ''),

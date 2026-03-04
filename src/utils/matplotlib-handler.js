@@ -81,8 +81,17 @@ base64.b64encode(buf.read()).decode('utf-8')
       }
     }
 
-    // 清除所有圖表
-    await pyodide.runPythonAsync('import matplotlib.pyplot as plt; plt.close("all")')
+    // 清除所有圖表 (safely handle WASM backend destroy crash)
+    try {
+      await pyodide.runPythonAsync(`
+import matplotlib.pyplot as plt
+try:
+    plt.close('all')
+except Exception:
+    from matplotlib._pylab_helpers import Gcf
+    Gcf.figs.clear()
+      `)
+    } catch (_e) { /* ignore close errors */ }
 
     return plots
   } catch (error) {
@@ -143,6 +152,15 @@ import warnings
 import io
 import base64
 import re as _mpl_re
+
+# Safely clear stale figure managers before switching backend
+# (WASM backend destroy() crashes if canvas DOM elements are gone)
+try:
+    from matplotlib._pylab_helpers import Gcf
+    Gcf.figs.clear()
+except Exception:
+    pass
+
 matplotlib.use('${backend}')
 if plt.style.available and 'default' in plt.style.available:
     plt.style.use('default')
@@ -169,7 +187,7 @@ def _sanitize_figure_text(fig):
                 continue
             s = t.get_text()
             if isinstance(s, str) and _BS in s:
-                s = _MULTI_BS_RE.sub(_BS, s)
+                s = _MULTI_BS_RE.sub(lambda m: _BS, s)
                 t.set_text(s)
 
 def _safe_save_figure(fig, buf):
