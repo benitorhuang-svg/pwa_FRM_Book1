@@ -382,269 +382,726 @@ except Exception:
 `;
 
 export const SCIPY_STUB = `
-# Lightweight SciPy stub to avoid ImportError in restricted environments
+# ══════════════════════════════════════════════════════════════
+# Comprehensive Pure-Python SciPy Stub for Pyodide
+# ALWAYS replaces scipy.stats (native _fblas is broken in WASM)
+# Also provides scipy.linalg, scipy.optimize, scipy.interpolate
+# ══════════════════════════════════════════════════════════════
+import sys, types, math
+import numpy as np
+
+# ── Get or create scipy module ────────────────────────────
 try:
-    import scipy
+    import scipy as _scipy_mod
+except ImportError:
+    _scipy_mod = types.ModuleType('scipy')
+    sys.modules['scipy'] = _scipy_mod
+
+# ── Special function helpers ──────────────────────────────
+def _norm_cdf_scalar(x):
+    return 0.5 * (1.0 + math.erf(x / math.sqrt(2.0)))
+
+def _norm_pdf_scalar(x):
+    return math.exp(-0.5 * x * x) / math.sqrt(2.0 * math.pi)
+
+def _ppf_bisect(cdf_fn, q, lo=-40.0, hi=40.0):
+    q = float(q)
+    if q <= 0: return lo
+    if q >= 1: return hi
+    for _ in range(80):
+        mid = 0.5 * (lo + hi)
+        if cdf_fn(mid) < q:
+            lo = mid
+        else:
+            hi = mid
+    return 0.5 * (lo + hi)
+
+def _gammainc(a, x):
+    if x <= 0: return 0.0
+    if x < a + 1:
+        ap, s, d = a, 1.0 / a, 1.0 / a
+        for _ in range(300):
+            ap += 1; d *= x / ap; s += d
+            if abs(d) < abs(s) * 1e-14: break
+        return s * math.exp(-x + a * math.log(max(x, 1e-300)) - math.lgamma(a))
+    else:
+        b = x + 1 - a; c = 1e30; d = 1.0 / b; h = d
+        for i in range(1, 300):
+            an = -i * (i - a); b += 2
+            d = an * d + b
+            if abs(d) < 1e-30: d = 1e-30
+            c = b + an / c
+            if abs(c) < 1e-30: c = 1e-30
+            d = 1.0 / d; dl = d * c; h *= dl
+            if abs(dl - 1) < 1e-14: break
+        return 1.0 - h * math.exp(-x + a * math.log(max(x, 1e-300)) - math.lgamma(a))
+
+def _betainc(a, b, x):
+    if x <= 0: return 0.0
+    if x >= 1: return 1.0
+    if x > (a + 1) / (a + b + 2):
+        return 1.0 - _betainc(b, a, 1.0 - x)
+    lbeta = math.lgamma(a) + math.lgamma(b) - math.lgamma(a + b)
+    front = math.exp(a * math.log(max(x, 1e-300)) + b * math.log(max(1 - x, 1e-300)) - lbeta) / a
+    c = 1.0; d = 1.0 / max(abs(1.0 - (a + b) * x / (a + 1)), 1e-30)
+    if 1.0 - (a + b) * x / (a + 1) < 0: d = -d
+    h = d
+    for m in range(1, 300):
+        num = m * (b - m) * x / ((a + 2 * m - 1) * (a + 2 * m))
+        d = 1.0 + num * d
+        if abs(d) < 1e-30: d = 1e-30
+        c = 1.0 + num / c
+        if abs(c) < 1e-30: c = 1e-30
+        d = 1.0 / d; h *= d * c
+        num = -(a + m) * (a + b + m) * x / ((a + 2 * m) * (a + 2 * m + 1))
+        d = 1.0 + num * d
+        if abs(d) < 1e-30: d = 1e-30
+        c = 1.0 + num / c
+        if abs(c) < 1e-30: c = 1e-30
+        d = 1.0 / d; dl = d * c; h *= dl
+        if abs(dl - 1.0) < 1e-14: break
+    return front * h
+
+def _select_moments(m, v, s, k, moments):
+    r = []
+    if 'm' in moments: r.append(m)
+    if 'v' in moments: r.append(v)
+    if 's' in moments: r.append(s if s is not None else 0.0)
+    if 'k' in moments: r.append(k if k is not None else 0.0)
+    return tuple(r) if len(r) > 1 else r[0]
+
+# ── Generator factory (unfrozen -> frozen delegation) ─────
+def _make_gen(FrozenCls, name):
+    class Gen:
+        def __init__(self):
+            self.name = name
+        def __call__(self, *a, **kw):
+            return FrozenCls(*a, **kw)
+        def rvs(self, *a, **kw):
+            sz = kw.pop('size', None); kw.pop('random_state', None)
+            return FrozenCls(*a, **kw).rvs(size=sz)
+        def stats(self, *a, **kw):
+            mo = kw.pop('moments', 'mvsk')
+            return FrozenCls(*a, **kw).stats(mo)
+        def pmf(self, k, *a, **kw):
+            return FrozenCls(*a, **kw).pmf(k)
+        def pdf(self, x, *a, **kw):
+            return FrozenCls(*a, **kw).pdf(x)
+        def cdf(self, x, *a, **kw):
+            return FrozenCls(*a, **kw).cdf(x)
+        def ppf(self, q, *a, **kw):
+            return FrozenCls(*a, **kw).ppf(q)
+        def logpdf(self, x, *a, **kw):
+            return FrozenCls(*a, **kw).logpdf(x)
+        def sf(self, x, *a, **kw):
+            return 1.0 - self.cdf(x, *a, **kw)
+        def isf(self, q, *a, **kw):
+            return self.ppf(1.0 - q, *a, **kw)
+        def fit(self, data, **kw):
+            if hasattr(FrozenCls, '_fit'):
+                return FrozenCls._fit(data, **kw)
+            return ()
+        def interval(self, confidence, *a, **kw):
+            alpha = 1.0 - confidence
+            return self.ppf(alpha / 2, *a, **kw), self.ppf(1 - alpha / 2, *a, **kw)
+        def __repr__(self):
+            return '<scipy.stats.' + name + '_gen object>'
+    return Gen()
+
+# ── Frozen distribution classes ───────────────────────────
+
+class _NormF:
+    _name = 'norm'
+    def __init__(self, loc=0.0, scale=1.0):
+        self.loc, self.scale = float(loc), float(scale)
+    def _z(self, x):
+        return (np.asarray(x, dtype=float) - self.loc) / self.scale
+    def pdf(self, x):
+        z = self._z(x)
+        r = np.exp(-0.5 * z ** 2) / (self.scale * math.sqrt(2 * math.pi))
+        return float(r) if np.ndim(r) == 0 else r
+    def logpdf(self, x):
+        return np.log(np.maximum(self.pdf(x), 1e-300))
+    def cdf(self, x):
+        z = self._z(x)
+        r = 0.5 * (1.0 + _verf(z / math.sqrt(2.0)))
+        return float(r) if np.ndim(r) == 0 else r
+    def ppf(self, q):
+        q_arr = np.atleast_1d(np.asarray(q, dtype=float))
+        r = np.array([_ppf_bisect(lambda v: _norm_cdf_scalar((v - self.loc) / self.scale), float(qi),
+                      self.loc - 40 * self.scale, self.loc + 40 * self.scale) for qi in q_arr.flat])
+        r = r.reshape(q_arr.shape)
+        return float(r) if np.ndim(q) == 0 else r
+    def rvs(self, size=None):
+        return np.random.normal(self.loc, self.scale, size=size)
+    def stats(self, moments='mvsk'):
+        return _select_moments(self.loc, self.scale ** 2, 0.0, 0.0, moments)
+    @staticmethod
+    def _fit(data, **kw):
+        d = np.asarray(data, dtype=float)
+        return float(np.mean(d)), float(np.std(d, ddof=0))
+
+def _verf(x):
+    x = np.asarray(x, dtype=float)
+    return np.vectorize(math.erf)(x)
+
+class _BernoulliF:
+    _name = 'bernoulli'
+    def __init__(self, p=0.5):
+        self.p = float(p)
+    def pmf(self, k):
+        k = np.asarray(k); p = self.p
+        return np.where(k == 1, p, np.where(k == 0, 1 - p, 0.0))
+    def cdf(self, k):
+        k = np.asarray(k, dtype=float); p = self.p
+        return np.where(k < 0, 0.0, np.where(k < 1, 1 - p, 1.0))
+    def ppf(self, q):
+        q = np.asarray(q, dtype=float)
+        return np.where(q <= 1 - self.p, 0, 1)
+    def rvs(self, size=None):
+        return np.random.binomial(1, self.p, size=size)
+    def stats(self, moments='mvsk'):
+        p = self.p; q = 1 - p
+        sk = (1 - 2*p) / max(math.sqrt(p*q), 1e-30) if p*q > 0 else 0.0
+        ku = (1 - 6*p*q) / max(p*q, 1e-30) if p*q > 0 else 0.0
+        return _select_moments(p, p*q, sk, ku, moments)
+
+class _BinomF:
+    _name = 'binom'
+    def __init__(self, n, p):
+        self.n, self.p = int(n), float(p)
+    def pmf(self, k):
+        k = np.atleast_1d(np.asarray(k, dtype=int)); n = self.n; p = self.p
+        r = np.array([math.comb(n, int(ki)) * p**int(ki) * (1-p)**(n-int(ki))
+                      if 0 <= ki <= n else 0.0 for ki in k.flat]).reshape(k.shape)
+        return float(r) if r.size == 1 else r
+    def cdf(self, k):
+        k = np.atleast_1d(np.asarray(k, dtype=int))
+        r = np.array([sum(self.pmf(j) for j in range(int(ki)+1)) for ki in k.flat]).reshape(k.shape)
+        return float(r) if r.size == 1 else r
+    def ppf(self, q):
+        q = np.atleast_1d(np.asarray(q, dtype=float))
+        def _sc(qi):
+            c = 0.0
+            for j in range(self.n + 1):
+                c += float(self.pmf(j))
+                if c >= qi: return j
+            return self.n
+        r = np.array([_sc(float(qi)) for qi in q.flat]).reshape(q.shape)
+        return int(r) if r.size == 1 else r
+    def rvs(self, size=None):
+        return np.random.binomial(self.n, self.p, size=size)
+    def stats(self, moments='mvsk'):
+        n, p = self.n, self.p; q = 1 - p
+        return _select_moments(n*p, n*p*q, (1-2*p)/max(math.sqrt(n*p*q),1e-30), (1-6*p*q)/(max(n*p*q,1e-30)), moments)
+
+class _PoissonF:
+    _name = 'poisson'
+    def __init__(self, mu):
+        self.mu = float(mu)
+    def pmf(self, k):
+        k = np.atleast_1d(np.asarray(k, dtype=int)); mu = self.mu
+        r = np.array([math.exp(-mu) * mu**int(ki) / math.factorial(int(ki))
+                      if ki >= 0 else 0.0 for ki in k.flat]).reshape(k.shape)
+        return float(r) if r.size == 1 else r
+    def cdf(self, k):
+        k = np.atleast_1d(np.asarray(k, dtype=int))
+        r = np.array([sum(float(self.pmf(j)) for j in range(max(0, int(ki))+1)) for ki in k.flat]).reshape(k.shape)
+        return float(r) if r.size == 1 else r
+    def ppf(self, q):
+        q = np.atleast_1d(np.asarray(q, dtype=float))
+        def _sc(qi):
+            c = 0.0
+            for j in range(int(self.mu * 20) + 100):
+                c += float(self.pmf(j))
+                if c >= qi: return j
+            return j
+        r = np.array([_sc(float(qi)) for qi in q.flat]).reshape(q.shape)
+        return int(r) if r.size == 1 else r
+    def rvs(self, size=None):
+        return np.random.poisson(self.mu, size=size)
+    def stats(self, moments='mvsk'):
+        mu = self.mu
+        return _select_moments(mu, mu, 1.0/max(math.sqrt(mu),1e-30), 1.0/max(mu,1e-30), moments)
+
+class _GeomF:
+    _name = 'geom'
+    def __init__(self, p=0.5):
+        self.p = float(p)
+    def pmf(self, k):
+        k = np.atleast_1d(np.asarray(k, dtype=int)); p = self.p
+        r = np.array([(1 - p)**(ki - 1) * p if ki >= 1 else 0.0 for ki in k.flat]).reshape(k.shape)
+        return float(r) if r.size == 1 else r
+    def cdf(self, k):
+        k = np.asarray(k, dtype=float); p = self.p
+        return np.where(k < 1, 0.0, 1.0 - (1.0 - p) ** np.floor(k))
+    def ppf(self, q):
+        q = np.asarray(q, dtype=float); p = self.p
+        r = np.ceil(np.log(1.0 - q) / np.log(max(1.0 - p, 1e-30)))
+        return int(r) if np.ndim(q) == 0 else r.astype(int)
+    def rvs(self, size=None):
+        return np.random.geometric(self.p, size=size)
+    def stats(self, moments='mvsk'):
+        p = self.p; q = 1 - p
+        return _select_moments(1.0/p, q/p**2, (2-p)/max(math.sqrt(q),1e-30), 6+p**2/max(q,1e-30), moments)
+
+class _UniformF:
+    _name = 'uniform'
+    def __init__(self, loc=0.0, scale=1.0):
+        self.loc, self.scale = float(loc), float(scale)
+    def pdf(self, x):
+        x = np.asarray(x, dtype=float); a, s = self.loc, self.scale
+        return np.where((x >= a) & (x <= a + s), 1.0 / s, 0.0)
+    def logpdf(self, x):
+        return np.log(np.maximum(self.pdf(x), 1e-300))
+    def cdf(self, x):
+        x = np.asarray(x, dtype=float); a, s = self.loc, self.scale
+        return np.clip((x - a) / s, 0.0, 1.0)
+    def ppf(self, q):
+        q = np.asarray(q, dtype=float)
+        return self.loc + q * self.scale
+    def rvs(self, size=None):
+        return np.random.uniform(self.loc, self.loc + self.scale, size=size)
+    def stats(self, moments='mvsk'):
+        a, s = self.loc, self.scale
+        return _select_moments(a + s/2, s**2/12, 0.0, -6.0/5.0, moments)
+
+class _ExponF:
+    _name = 'expon'
+    def __init__(self, loc=0.0, scale=1.0):
+        self.loc, self.scale = float(loc), float(scale)
+    def pdf(self, x):
+        x = np.asarray(x, dtype=float); lo, sc = self.loc, self.scale
+        z = (x - lo) / sc
+        return np.where(z >= 0, np.exp(-z) / sc, 0.0)
+    def logpdf(self, x):
+        return np.log(np.maximum(self.pdf(x), 1e-300))
+    def cdf(self, x):
+        x = np.asarray(x, dtype=float); lo, sc = self.loc, self.scale
+        z = (x - lo) / sc
+        return np.where(z >= 0, 1.0 - np.exp(-z), 0.0)
+    def ppf(self, q):
+        q = np.asarray(q, dtype=float)
+        return self.loc - self.scale * np.log(1.0 - q)
+    def rvs(self, size=None):
+        return np.random.exponential(self.scale, size=size) + self.loc
+    def stats(self, moments='mvsk'):
+        return _select_moments(self.loc + self.scale, self.scale**2, 2.0, 6.0, moments)
+
+class _BetaF:
+    _name = 'beta'
+    def __init__(self, a, b, loc=0.0, scale=1.0):
+        self.a, self.b = float(a), float(b)
+        self.loc, self.scale = float(loc), float(scale)
+    def pdf(self, x):
+        x = np.asarray(x, dtype=float)
+        z = (x - self.loc) / self.scale; a, b = self.a, self.b
+        lB = math.lgamma(a) + math.lgamma(b) - math.lgamma(a + b)
+        def _p(zi):
+            if zi <= 0 or zi >= 1: return 0.0
+            return math.exp((a-1)*math.log(zi) + (b-1)*math.log(1-zi) - lB) / self.scale
+        r = np.vectorize(_p)(z)
+        return float(r) if np.ndim(r) == 0 else r
+    def logpdf(self, x):
+        return np.log(np.maximum(self.pdf(x), 1e-300))
+    def cdf(self, x):
+        x = np.asarray(x, dtype=float)
+        z = np.clip((x - self.loc) / self.scale, 0, 1)
+        r = np.vectorize(lambda zi: _betainc(self.a, self.b, zi))(z)
+        return float(r) if np.ndim(r) == 0 else r
+    def ppf(self, q):
+        q = np.atleast_1d(np.asarray(q, dtype=float))
+        r = np.array([_ppf_bisect(lambda v: _betainc(self.a, self.b, (v-self.loc)/self.scale),
+                      float(qi), self.loc, self.loc+self.scale) for qi in q.flat]).reshape(q.shape)
+        return float(r) if q.size == 1 else r
+    def rvs(self, size=None):
+        return np.random.beta(self.a, self.b, size=size) * self.scale + self.loc
+    def stats(self, moments='mvsk'):
+        a, b = self.a, self.b; ab = a + b
+        m = a / ab; v = a * b / (ab**2 * (ab + 1))
+        s = 2*(b-a)*math.sqrt(ab+1) / ((ab+2)*math.sqrt(max(a*b,1e-30)))
+        ku = 6*(a**3 - a**2*(2*b-1) + b**2*(b+1) - 2*a*b*(b+2)) / max(a*b*(ab+2)*(ab+3),1e-30)
+        return _select_moments(m*self.scale+self.loc, v*self.scale**2, s, ku, moments)
+
+class _GammaF:
+    _name = 'gamma'
+    def __init__(self, a, loc=0.0, scale=1.0):
+        self.a = float(a); self.loc = float(loc); self.scale = float(scale)
+    def pdf(self, x):
+        x = np.asarray(x, dtype=float); a, sc = self.a, self.scale
+        z = (x - self.loc) / sc
+        def _p(zi):
+            if zi <= 0: return 0.0
+            return math.exp((a-1)*math.log(max(zi,1e-300)) - zi - math.lgamma(a)) / sc
+        r = np.vectorize(_p)(z)
+        return float(r) if np.ndim(r) == 0 else r
+    def logpdf(self, x):
+        return np.log(np.maximum(self.pdf(x), 1e-300))
+    def cdf(self, x):
+        x = np.asarray(x, dtype=float)
+        z = (x - self.loc) / self.scale
+        r = np.vectorize(lambda zi: _gammainc(self.a, max(zi, 0)))(z)
+        return float(r) if np.ndim(r) == 0 else r
+    def ppf(self, q):
+        q = np.atleast_1d(np.asarray(q, dtype=float))
+        r = np.array([_ppf_bisect(lambda v: _gammainc(self.a, max((v-self.loc)/self.scale, 0)),
+                      float(qi), self.loc, self.loc + self.a * self.scale * 40) for qi in q.flat]).reshape(q.shape)
+        return float(r) if q.size == 1 else r
+    def rvs(self, size=None):
+        return np.random.gamma(self.a, self.scale, size=size) + self.loc
+    def stats(self, moments='mvsk'):
+        a, sc = self.a, self.scale
+        return _select_moments(a*sc+self.loc, a*sc**2, 2.0/math.sqrt(max(a,1e-30)), 6.0/max(a,1e-30), moments)
+
+class _Chi2F:
+    _name = 'chi2'
+    def __init__(self, df, loc=0.0, scale=1.0):
+        self.df = float(df); self.loc = float(loc); self.scale = float(scale)
+    def pdf(self, x):
+        x = np.asarray(x, dtype=float); k = self.df
+        z = (x - self.loc) / self.scale
+        def _p(zi):
+            if zi <= 0: return 0.0
+            hk = k / 2.0
+            return math.exp((hk-1)*math.log(max(zi,1e-300)) - zi/2 - hk*math.log(2) - math.lgamma(hk)) / self.scale
+        r = np.vectorize(_p)(z)
+        return float(r) if np.ndim(r) == 0 else r
+    def logpdf(self, x):
+        return np.log(np.maximum(self.pdf(x), 1e-300))
+    def cdf(self, x):
+        x = np.asarray(x, dtype=float); k = self.df
+        z = (x - self.loc) / self.scale
+        r = np.vectorize(lambda zi: _gammainc(k / 2.0, max(zi, 0) / 2.0))(z)
+        return float(r) if np.ndim(r) == 0 else r
+    def ppf(self, q):
+        q = np.atleast_1d(np.asarray(q, dtype=float))
+        r = np.array([_ppf_bisect(lambda v: _gammainc(self.df/2, max((v-self.loc)/self.scale, 0)/2),
+                      float(qi), self.loc, self.loc + self.df * self.scale * 20) for qi in q.flat]).reshape(q.shape)
+        return float(r) if q.size == 1 else r
+    def rvs(self, size=None):
+        return np.random.chisquare(self.df, size=size) * self.scale + self.loc
+    def stats(self, moments='mvsk'):
+        k = self.df
+        return _select_moments(k, 2*k, math.sqrt(8.0/max(k,1e-30)), 12.0/max(k,1e-30), moments)
+
+class _TF:
+    _name = 't'
+    def __init__(self, df, loc=0.0, scale=1.0):
+        self.df = float(df); self.loc = float(loc); self.scale = float(scale)
+    def pdf(self, x):
+        x = np.asarray(x, dtype=float); v = self.df
+        z = (x - self.loc) / self.scale
+        c = math.exp(math.lgamma((v+1)/2) - math.lgamma(v/2)) / math.sqrt(v * math.pi)
+        r = c * (1 + z**2 / v)**(-(v+1)/2) / self.scale
+        return float(r) if np.ndim(r) == 0 else r
+    def logpdf(self, x):
+        return np.log(np.maximum(self.pdf(x), 1e-300))
+    def cdf(self, x):
+        x = np.asarray(x, dtype=float); v = self.df
+        z = (x - self.loc) / self.scale
+        def _c(zi):
+            t2 = zi * zi
+            ib = _betainc(v / 2, 0.5, v / (v + t2))
+            return 0.5 * ib if zi < 0 else 1.0 - 0.5 * ib
+        r = np.vectorize(_c)(z)
+        return float(r) if np.ndim(r) == 0 else r
+    def ppf(self, q):
+        q = np.atleast_1d(np.asarray(q, dtype=float))
+        r = np.array([_ppf_bisect(lambda v: self.cdf(v), float(qi),
+                      self.loc - 200*self.scale, self.loc + 200*self.scale) for qi in q.flat]).reshape(q.shape)
+        return float(r) if q.size == 1 else r
+    def rvs(self, size=None):
+        return np.random.standard_t(self.df, size=size) * self.scale + self.loc
+    def stats(self, moments='mvsk'):
+        v = self.df
+        m = self.loc
+        va = v / (v - 2) * self.scale**2 if v > 2 else float('inf')
+        s = 0.0
+        ku = 6.0 / (v - 4) if v > 4 else float('inf')
+        return _select_moments(m, va, s, ku, moments)
+
+class _FF:
+    _name = 'f'
+    def __init__(self, dfn, dfd, loc=0.0, scale=1.0):
+        self.d1 = float(dfn); self.d2 = float(dfd)
+        self.loc = float(loc); self.scale = float(scale)
+    def pdf(self, x):
+        x = np.asarray(x, dtype=float); d1, d2 = self.d1, self.d2
+        z = (x - self.loc) / self.scale
+        def _p(zi):
+            if zi <= 0: return 0.0
+            num = (d1*zi)**d1 * d2**d2 / (d1*zi + d2)**(d1+d2)
+            lb = math.lgamma(d1/2) + math.lgamma(d2/2) - math.lgamma((d1+d2)/2)
+            return math.sqrt(max(num, 0)) / (zi * math.exp(lb)) / self.scale
+        r = np.vectorize(_p)(z)
+        return float(r) if np.ndim(r) == 0 else r
+    def logpdf(self, x):
+        return np.log(np.maximum(self.pdf(x), 1e-300))
+    def cdf(self, x):
+        x = np.asarray(x, dtype=float); d1, d2 = self.d1, self.d2
+        z = (x - self.loc) / self.scale
+        def _c(zi):
+            if zi <= 0: return 0.0
+            return _betainc(d1/2, d2/2, d1*zi / (d1*zi + d2))
+        r = np.vectorize(_c)(z)
+        return float(r) if np.ndim(r) == 0 else r
+    def ppf(self, q):
+        q = np.atleast_1d(np.asarray(q, dtype=float))
+        r = np.array([_ppf_bisect(lambda v: self.cdf(v), float(qi),
+                      self.loc, self.loc + self.d2*self.scale*20) for qi in q.flat]).reshape(q.shape)
+        return float(r) if q.size == 1 else r
+    def rvs(self, size=None):
+        return np.random.f(self.d1, self.d2, size=size) * self.scale + self.loc
+    def stats(self, moments='mvsk'):
+        d1, d2 = self.d1, self.d2
+        m = d2 / (d2 - 2) if d2 > 2 else float('inf')
+        v = 2*d2**2*(d1+d2-2) / (d1*(d2-2)**2*(d2-4)) if d2 > 4 else float('inf')
+        return _select_moments(m, v, 0.0, 0.0, moments)
+
+class _LognormF:
+    _name = 'lognorm'
+    def __init__(self, s, loc=0.0, scale=1.0):
+        self.s = float(s); self.loc = float(loc); self.scale = float(scale)
+    def pdf(self, x):
+        x = np.asarray(x, dtype=float); s, sc = self.s, self.scale
+        z = (x - self.loc) / sc
+        def _p(zi):
+            if zi <= 0: return 0.0
+            return math.exp(-0.5*(math.log(zi)/s)**2) / (s * zi * math.sqrt(2*math.pi)) / sc
+        r = np.vectorize(_p)(z)
+        return float(r) if np.ndim(r) == 0 else r
+    def logpdf(self, x):
+        return np.log(np.maximum(self.pdf(x), 1e-300))
+    def cdf(self, x):
+        x = np.asarray(x, dtype=float); s = self.s
+        z = (x - self.loc) / self.scale
+        def _c(zi):
+            if zi <= 0: return 0.0
+            return _norm_cdf_scalar(math.log(zi) / s)
+        r = np.vectorize(_c)(z)
+        return float(r) if np.ndim(r) == 0 else r
+    def ppf(self, q):
+        q = np.atleast_1d(np.asarray(q, dtype=float))
+        def _sc(qi):
+            nppf = _ppf_bisect(_norm_cdf_scalar, float(qi))
+            return math.exp(self.s * nppf) * self.scale + self.loc
+        r = np.array([_sc(float(qi)) for qi in q.flat]).reshape(q.shape)
+        return float(r) if q.size == 1 else r
+    def rvs(self, size=None):
+        return np.random.lognormal(0, self.s, size=size) * self.scale + self.loc
+    def stats(self, moments='mvsk'):
+        s = self.s; s2 = s * s
+        m = math.exp(s2 / 2) * self.scale + self.loc
+        v = (math.exp(s2) - 1) * math.exp(s2) * self.scale**2
+        return _select_moments(m, v, 0.0, 0.0, moments)
+    @staticmethod
+    def _fit(data, **kw):
+        d = np.asarray(data, dtype=float)
+        d = d[d > 0]
+        lndata = np.log(d)
+        s = float(np.std(lndata, ddof=1))
+        scale = float(np.exp(np.mean(lndata)))
+        return s, 0.0, scale
+
+class _RandintF:
+    _name = 'randint'
+    def __init__(self, low, high):
+        self.low, self.high = int(low), int(high)
+    def pmf(self, k):
+        k = np.asarray(k, dtype=int); lo, hi = self.low, self.high
+        n = hi - lo
+        return np.where((k >= lo) & (k < hi), 1.0 / n, 0.0)
+    def cdf(self, k):
+        k = np.asarray(k, dtype=float); lo, hi = self.low, self.high
+        return np.clip((np.floor(k) - lo + 1) / (hi - lo), 0.0, 1.0)
+    def ppf(self, q):
+        q = np.asarray(q, dtype=float)
+        return np.floor(self.low + q * (self.high - self.low)).astype(int)
+    def rvs(self, size=None):
+        return np.random.randint(self.low, self.high, size=size)
+    def stats(self, moments='mvsk'):
+        lo, hi = self.low, self.high; n = hi - lo
+        m = (lo + hi - 1) / 2.0; v = (n**2 - 1) / 12.0
+        return _select_moments(m, v, 0.0, -6*(n**2+1)/(5*(n**2-1)) if n > 1 else 0, moments)
+
+# ── Register scipy.stats (ALWAYS override native) ────────
+_stats = types.ModuleType('scipy.stats')
+_stats.norm = _make_gen(_NormF, 'norm')
+_stats.bernoulli = _make_gen(_BernoulliF, 'bernoulli')
+_stats.binom = _make_gen(_BinomF, 'binom')
+_stats.poisson = _make_gen(_PoissonF, 'poisson')
+_stats.geom = _make_gen(_GeomF, 'geom')
+_stats.uniform = _make_gen(_UniformF, 'uniform')
+_stats.expon = _make_gen(_ExponF, 'expon')
+_stats.beta = _make_gen(_BetaF, 'beta')
+_stats.gamma = _make_gen(_GammaF, 'gamma')
+_stats.chi2 = _make_gen(_Chi2F, 'chi2')
+_stats.t = _make_gen(_TF, 't')
+_stats.f = _make_gen(_FF, 'f')
+_stats.lognorm = _make_gen(_LognormF, 'lognorm')
+_stats.randint = _make_gen(_RandintF, 'randint')
+
+_scipy_mod.stats = _stats
+sys.modules['scipy.stats'] = _stats
+print('✅ SciPy.stats: 14 distributions installed (pure-Python, _fblas-free).')
+
+# ── scipy.linalg ─────────────────────────────────────────
+try:
+    from scipy import linalg as _native_linalg
+    _native_linalg.inv
+    _native_linalg.solve
 except Exception:
-    import types, sys
-    import numpy as np
-    import math
-
-    scipy = types.ModuleType('scipy')
-    stats = types.ModuleType('scipy.stats')
-
-    def _ensure_array(x):
-        return np.array(x)
-
-    def _scalar_or_array(func):
-        def wrapper(x, *args, **kwargs):
-            x_arr = np.array(x)
-            if x_arr.shape == ():
-                return func(float(x), *args, **kwargs)
-            return np.array([func(float(xi), *args, **kwargs) for xi in x_arr])
-        return wrapper
-
-    # Normal distribution
-    def norm(loc=0.0, scale=1.0):
-        class N:
-            name = 'norm'
-            def rvs(self, size=None, **kwargs):
-                return np.random.normal(loc, scale, size=size)
-            @_scalar_or_array
-            def pdf(self, x):
-                return math.exp(-0.5*((x-loc)/scale)**2)/(scale*math.sqrt(2*math.pi))
-            @_scalar_or_array
-            def cdf(self, x):
-                return 0.5*(1+math.erf((x-loc)/(scale*math.sqrt(2))))
-            def ppf(self, q):
-                # numeric inverse via bisection
-                def cdf_fn(x):
-                    return 0.5*(1+math.erf((x-loc)/(scale*math.sqrt(2))))
-                def scalar_ppf(qi):
-                    a = loc - 10*scale
-                    b = loc + 10*scale
-                    for _ in range(60):
-                        m = 0.5*(a+b)
-                        if cdf_fn(m) < qi:
-                            a = m
-                        else:
-                            b = m
-                    return 0.5*(a+b)
-                if hasattr(q, '__iter__'):
-                    return np.array([scalar_ppf(float(qi)) for qi in q])
-                return scalar_ppf(float(q))
-            def stats(self, moments='mvsk'):
-                return loc, scale**2, None, None
-        return N()
-
-    # Bernoulli
-    def bernoulli(p=0.5):
-        class B:
-            name = 'bernoulli'
-            def rvs(self, size=None, **kwargs):
-                return np.random.binomial(1, p, size=size)
-            def pmf(self, k):
-                k_arr = np.array(k)
-                return np.where(k_arr==1, p, 1-p)
-            def stats(self, moments='mvsk'):
-                return p, p*(1-p), None, None
-        return B()
-
-    # Binomial
-    def binom(n, p):
-        class Bn:
-            name = 'binom'
-            def rvs(self, size=None, **kwargs):
-                return np.random.binomial(n, p, size=size)
-            def pmf(self, k):
-                k_arr = np.atleast_1d(k)
-                res = []
-                for ki in k_arr:
-                    from math import comb
-                    res.append(comb(int(n), int(ki)) * (p**int(ki)) * ((1-p)**(int(n)-int(ki))))
-                return np.array(res).reshape(np.array(k).shape)
-            def stats(self, moments='mvsk'):
-                mean = n*p
-                var = n*p*(1-p)
-                return mean, var, None, None
-        return Bn()
-
-    # Uniform
-    def uniform(loc=0.0, scale=1.0):
-        class U:
-            name = 'uniform'
-            def rvs(self, size=None, **kwargs):
-                return np.random.uniform(loc, loc+scale, size=size)
-            @_scalar_or_array
-            def pdf(self, x):
-                return 1.0/scale if (loc <= x <= loc+scale) else 0.0
-            @_scalar_or_array
-            def cdf(self, x):
-                return min(max((x-loc)/scale, 0.0), 1.0)
-        return U()
-
-    # Exponential
-    def expon(scale=1.0, loc=0.0):
-        class E:
-            name = 'expon'
-            def rvs(self, size=None, **kwargs):
-                return np.random.exponential(scale, size=size) + loc
-            @_scalar_or_array
-            def pdf(self, x):
-                if x < loc:
-                    return 0.0
-                return (1.0/scale) * math.exp(-(x-loc)/scale)
-            @_scalar_or_array
-            def cdf(self, x):
-                if x < loc:
-                    return 0.0
-                return 1 - math.exp(-(x-loc)/scale)
-        return E()
-
-    # Poisson
-    def poisson(mu):
-        class P:
-            name = 'poisson'
-            def rvs(self, size=None, **kwargs):
-                return np.random.poisson(mu, size=size)
-            def pmf(self, k):
-                k_arr = np.atleast_1d(k)
-                res = []
-                from math import factorial
-                for ki in k_arr:
-                    res.append(math.exp(-mu) * mu**int(ki) / factorial(int(ki)))
-                return np.array(res).reshape(np.array(k).shape)
-            def stats(self, moments='mvsk'):
-                return mu, mu, None, None
-        return P()
-
-    # Geometric
-    def geom(p=0.5):
-        class G:
-            name = 'geom'
-            def rvs(self, size=None, **kwargs):
-                return np.random.geometric(p, size=size)
-            def pmf(self, k):
-                k_arr = np.atleast_1d(k)
-                res = [(1-p)**(int(ki)-1) * p for ki in k_arr]
-                return np.array(res).reshape(np.array(k).shape)
-            def stats(self, moments='mvsk'):
-                mean = 1.0/p
-                var = (1-p)/(p**2)
-                return mean, var, None, None
-        return G()
-
-    # RandInt
-    def randint(low, high=None):
-        if high is None:
-            low, high = 0, low
-        class R:
-            name = 'randint'
-            def rvs(self, size=None, **kwargs):
-                return np.random.randint(low, high, size=size)
-        return R()
-
-    # Beta
-    def beta(a, b):
-        class BETA:
-            name = 'beta'
-            def rvs(self, size=None, **kwargs):
-                return np.random.beta(a, b, size=size)
-            def mean(self):
-                return a / (a + b)
-            def stats(self, moments='mvsk'):
-                mean = a / (a + b)
-                var = a*b / ((a + b)**2 * (a + b + 1))
-                return mean, var, None, None
-        return BETA()
-
-    # Gamma
-    def gamma(shape, scale=1.0):
-        class GAM:
-            name = 'gamma'
-            def rvs(self, size=None, **kwargs):
-                return np.random.gamma(shape, scale, size=size)
-            def mean(self):
-                return shape * scale
-            def stats(self, moments='mvsk'):
-                mean = shape * scale
-                var = shape * (scale**2)
-                return mean, var, None, None
-        return GAM()
-
-    stats.norm = norm
-    stats.bernoulli = bernoulli
-    stats.binom = binom
-    stats.uniform = uniform
-    stats.expon = expon
-    stats.poisson = poisson
-    stats.beta = beta
-    stats.gamma = gamma
-    stats.geom = geom
-    stats.randint = randint
-
-    scipy.stats = stats
-    sys.modules['scipy'] = scipy
-    sys.modules['scipy.stats'] = stats
-    print('✅ SciPy stub installed (enhanced).')
-
-    # Provide a minimal scipy.linalg stub for common examples (pascal, ldl)
-    linalg = types.ModuleType('scipy.linalg')
-
-    def pascal(n):
-        import numpy as _np
-        from math import comb
-        M = _np.zeros((n, n), dtype=int)
+    _linalg = types.ModuleType('scipy.linalg')
+    def _pascal(n):
+        M = np.zeros((n, n), dtype=int)
         for i in range(n):
             for j in range(n):
-                ii = i
-                jj = j
-                if jj < ii:
-                    M[i, j] = comb(ii, jj)
-                else:
-                    M[i, j] = comb(jj, ii)
+                M[i, j] = math.comb(j, i) if j >= i else math.comb(i, j)
         return M
-
-    def ldl(A):
-        import numpy as _np
-        A = _np.array(A)
-        n = A.shape[0]
-        # Try Cholesky for positive-definite matrices
+    def _ldl(A):
+        A = np.array(A, dtype=float); n = A.shape[0]
         try:
-            L = _np.linalg.cholesky(A)
-            D = _np.eye(n)
-            P = None
-            return L, D, P
+            L = np.linalg.cholesky(A); return L, np.eye(n), None
         except Exception:
-            # Fallback: eigen-decomposition (not triangular but satisfies A = V D V.T)
-            evals, evecs = _np.linalg.eigh(A)
-            D = _np.diag(evals)
-            L = evecs
-            P = None
-            return L, D, P
+            evals, evecs = np.linalg.eigh(A)
+            return evecs, np.diag(evals), None
+    _linalg.pascal = _pascal
+    _linalg.ldl = _ldl
+    _linalg.eig = lambda A: np.linalg.eig(np.asarray(A, dtype=float))
+    _linalg.inv = lambda A: np.linalg.inv(np.asarray(A, dtype=float))
+    _linalg.solve = lambda a, b: np.linalg.solve(np.asarray(a, dtype=float), np.asarray(b, dtype=float))
+    _linalg.det = lambda A: float(np.linalg.det(np.asarray(A, dtype=float)))
+    _linalg.norm = lambda x, **kw: np.linalg.norm(np.asarray(x, dtype=float))
+    _scipy_mod.linalg = _linalg
+    sys.modules['scipy.linalg'] = _linalg
+    print('✅ SciPy.linalg: stub installed (numpy backend).')
 
-    # Additional common linear algebra helpers
-    def eig(A):
-        import numpy as _np
-        vals, vecs = _np.linalg.eig(_np.array(A))
-        return vals, vecs
+# ── scipy.optimize ────────────────────────────────────────
+try:
+    from scipy import optimize as _native_opt
+    _native_opt.minimize
+    _native_opt.brentq
+except Exception:
+    _opt = types.ModuleType('scipy.optimize')
+    class _OptResult:
+        def __init__(self, **kw):
+            self.__dict__.update(kw)
+        def __repr__(self):
+            return str(self.__dict__)
 
-    def inv(A):
-        import numpy as _np
-        return _np.linalg.inv(_np.array(A))
+    def _minimize(fun, x0, args=(), method=None, bounds=None, constraints=(), options=None, jac=None, hess=None, **kw):
+        x = np.array(x0, dtype=float).copy(); n = len(x)
+        maxiter = (options or {}).get('maxiter', 2000 * n)
+        tol = (options or {}).get('ftol', 1e-10)
+        def _pen(xv):
+            v = float(fun(xv, *args) if args else fun(xv))
+            if bounds:
+                for i, (lo, hi) in enumerate(bounds):
+                    if lo is not None and xv[i] < lo: v += 1e8 * (lo - xv[i])**2
+                    if hi is not None and xv[i] > hi: v += 1e8 * (xv[i] - hi)**2
+            c_list = [constraints] if isinstance(constraints, dict) else list(constraints)
+            for c in c_list:
+                cv = float(c['fun'](xv))
+                if c.get('type') == 'eq': v += 1e8 * cv**2
+                elif c.get('type') == 'ineq' and cv < 0: v += 1e8 * cv**2
+            return v
+        simplex = [x.copy()]
+        for i in range(n):
+            xi = x.copy(); xi[i] += 0.05 * (abs(x[i]) + 0.01); simplex.append(xi)
+        fvals = [_pen(s) for s in simplex]
+        nit = 0
+        for nit in range(maxiter):
+            idx = np.argsort(fvals); simplex = [simplex[i] for i in idx]; fvals = [fvals[i] for i in idx]
+            if abs(fvals[-1] - fvals[0]) < tol: break
+            c = np.mean(simplex[:-1], axis=0)
+            xr = c + (c - simplex[-1]); fr = _pen(xr)
+            if fvals[0] <= fr < fvals[-2]:
+                simplex[-1] = xr; fvals[-1] = fr
+            elif fr < fvals[0]:
+                xe = c + 2*(xr - c); fe = _pen(xe)
+                if fe < fr: simplex[-1] = xe; fvals[-1] = fe
+                else: simplex[-1] = xr; fvals[-1] = fr
+            else:
+                xc = c + 0.5*(simplex[-1] - c); fc = _pen(xc)
+                if fc < fvals[-1]: simplex[-1] = xc; fvals[-1] = fc
+                else:
+                    for i in range(1, len(simplex)):
+                        simplex[i] = simplex[0] + 0.5*(simplex[i] - simplex[0]); fvals[i] = _pen(simplex[i])
+        best = simplex[np.argmin(fvals)]
+        return _OptResult(x=best, fun=float(fun(best, *args) if args else fun(best)),
+                          success=True, message='Optimization terminated.', nit=nit+1, nfev=(nit+1)*(n+1))
 
-    def solve(a, b):
-        import numpy as _np
-        return _np.linalg.solve(_np.array(a), _np.array(b))
+    def _brentq(f, a, b, args=(), xtol=1e-12, maxiter=100, **kw):
+        fa = f(a, *args); fb = f(b, *args)
+        for _ in range(maxiter):
+            c = (a + b) / 2.0; fc = f(c, *args)
+            if abs(fc) < xtol or (b - a) / 2 < xtol: return c
+            if fa * fc < 0: b = c; fb = fc
+            else: a = c; fa = fc
+        return (a + b) / 2.0
 
-    linalg.pascal = pascal
-    linalg.ldl = ldl
-    linalg.eig = eig
-    linalg.inv = inv
-    linalg.solve = solve
-    scipy.linalg = linalg
-    sys.modules['scipy.linalg'] = linalg
+    def _newton(func, x0, fprime=None, args=(), tol=1e-12, maxiter=50, **kw):
+        x = float(x0)
+        for _ in range(maxiter):
+            fx = func(x, *args)
+            if abs(fx) < tol: return x
+            if fprime:
+                dfx = fprime(x, *args)
+            else:
+                h = max(abs(x) * 1e-8, 1e-10)
+                dfx = (func(x + h, *args) - func(x - h, *args)) / (2 * h)
+            if abs(dfx) < 1e-30: break
+            x -= fx / dfx
+        return x
 
+    class _LinearConstraint:
+        def __init__(self, A, lb, ub):
+            self.A, self.lb, self.ub = A, lb, ub
+    class _Bounds:
+        def __init__(self, lb, ub):
+            self.lb, self.ub = lb, ub
+
+    _opt.minimize = _minimize
+    _opt.brentq = _brentq
+    _opt.newton = _newton
+    _opt.LinearConstraint = _LinearConstraint
+    _opt.Bounds = _Bounds
+    _opt.OptimizeResult = _OptResult
+    _scipy_mod.optimize = _opt
+    sys.modules['scipy.optimize'] = _opt
+    print('✅ SciPy.optimize: stub installed (Nelder-Mead + Brent + Newton).')
+
+# ── scipy.interpolate ────────────────────────────────────
+try:
+    from scipy import interpolate as _native_interp
+    _native_interp.interp1d
+except Exception:
+    _interp = types.ModuleType('scipy.interpolate')
+    class _Interp1d:
+        def __init__(self, x, y, kind='linear', fill_value=None, bounds_error=True, **kw):
+            order = np.argsort(x)
+            self._x = np.asarray(x, dtype=float)[order]
+            self._y = np.asarray(y, dtype=float)[order]
+        def __call__(self, x_new):
+            x_new = np.atleast_1d(np.asarray(x_new, dtype=float))
+            r = np.interp(x_new, self._x, self._y)
+            return float(r) if x_new.size == 1 else r
+    class _Interp2d:
+        def __init__(self, x, y, z, kind='linear', **kw):
+            self._x = np.asarray(x, dtype=float)
+            self._y = np.asarray(y, dtype=float)
+            self._z = np.asarray(z, dtype=float)
+        def __call__(self, xn, yn):
+            xn = np.atleast_1d(np.asarray(xn, dtype=float))
+            yn = np.atleast_1d(np.asarray(yn, dtype=float))
+            return np.interp(xn, self._x, self._z.flat[:len(self._x)])
+    _interp.interp1d = _Interp1d
+    _interp.interp2d = _Interp2d
+    _scipy_mod.interpolate = _interp
+    sys.modules['scipy.interpolate'] = _interp
+    print('✅ SciPy.interpolate: stub installed (numpy interp backend).')
+
+print('✅ SciPy comprehensive stub fully loaded.')
 `;
 
 export const BASE_ENV_SETUP = `
@@ -729,7 +1186,37 @@ except ImportError:
     sys.modules['distutils.version'] = d.version
     sys.modules['distutils.util'] = d.util
     sys.modules['distutils.spawn'] = d.spawn
-    print("✅ distutils 相容性：已建立虛擬模組。")
+
+# Always ensure LooseVersion/StrictVersion exist (even if distutils loaded)
+import distutils.version as _dv
+if not hasattr(_dv, 'LooseVersion'):
+    import re as _re
+    class _LooseVersion:
+        component_re = _re.compile(r'(\\d+|[a-z]+|\\.|\\-)', _re.VERBOSE)
+        def __init__(self, vstring=None):
+            if vstring:
+                self.vstring = str(vstring)
+                self.version = [int(x) if x.isdigit() else x for x in self.component_re.findall(self.vstring) if x not in ('.', '-')]
+            else:
+                self.vstring = '0'
+                self.version = [0]
+        def __str__(self): return self.vstring
+        def __repr__(self): return 'LooseVersion(' + repr(self.vstring) + ')'
+        def _cmp(self, other):
+            if isinstance(other, str): other = _LooseVersion(other)
+            for a, b in zip(self.version, other.version):
+                if a == b: continue
+                try: return (int(a) > int(b)) - (int(a) < int(b))
+                except (ValueError, TypeError): return (str(a) > str(b)) - (str(a) < str(b))
+            return (len(self.version) > len(other.version)) - (len(self.version) < len(other.version))
+        def __eq__(self, o): return self._cmp(o) == 0
+        def __lt__(self, o): return self._cmp(o) < 0
+        def __le__(self, o): return self._cmp(o) <= 0
+        def __gt__(self, o): return self._cmp(o) > 0
+        def __ge__(self, o): return self._cmp(o) >= 0
+    _dv.LooseVersion = _LooseVersion
+    _dv.StrictVersion = _LooseVersion
+    print("✅ distutils.version.LooseVersion: 相容層已安裝。")
 
 # 網路支援
 try:

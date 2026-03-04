@@ -167,7 +167,7 @@ export async function loadPyodide(onProgress) {
             // Core Pyodide distribution packages
             // NOTE: do not preload scipy here; browser-side SciPy native extensions can
             // trigger PyInit__fblas errors in this environment. We rely on SCIPY_STUB.
-            const corePackages = ['numpy', 'pandas', 'matplotlib', 'statsmodels', 'sympy', 'lxml', 'micropip'];
+            const corePackages = ['numpy', 'pandas', 'matplotlib', 'sympy', 'lxml', 'micropip'];
             // Third-party packages (not in distribution)
             const pipPackages = ['numpy-financial', 'pandas-datareader', 'pyodide-http', 'pymoo==0.4.1', 'seaborn'];
             const installedFiles = pyodide.FS.readdir(SITE_PACKAGES);
@@ -249,24 +249,19 @@ try:
     for func in ['irr', 'npv', 'pmt', 'pv', 'rate', 'nper', 'fv', 'ppmt', 'ipmt']:
         if not hasattr(np, func) and hasattr(npf, func): setattr(np, func, getattr(npf, func))
 except ImportError: pass
-                `),
-                pyodide.runPythonAsync(`
-try:
-    import scipy.stats
-    if not hasattr(scipy.stats, 'binom_test') and hasattr(scipy.stats, 'binomtest'):
-        def binom_test_shim(k, n=None, p=0.5, alternative='two-sided'):
-            return scipy.stats.binomtest(k, n, p, alternative).pvalue
-        scipy.stats.binom_test = binom_test_shim
-except: pass
                 `)
             ]);
             await smoother.yieldToUI();
 
+            smoother.update(95, '🔬 系統：正在安裝 SciPy 純 Python 計算引擎...')
+            await smoother.yieldToUI();
+            // SCIPY_STUB must run FIRST (it replaces native scipy.stats which is broken)
+            await pyodide.runPythonAsync(SCIPY_STUB);
+
             smoother.update(98, '🚀 系統：正在啟動 Pymoo & QuantLib 虛擬層...')
             await smoother.yieldToUI();
-            // Run environment shims (including a SciPy import-safe stub)
+            // Run remaining environment shims in parallel
             await Promise.all([
-                pyodide.runPythonAsync(SCIPY_STUB),
                 pyodide.runPythonAsync(BASE_ENV_SETUP),
                 pyodide.runPythonAsync(PYMOO_SHIM),
                 pyodide.runPythonAsync(QUANTLIB_SHIM),
